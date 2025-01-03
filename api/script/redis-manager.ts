@@ -176,15 +176,16 @@ export class RedisManager {
   constructor() {
     if (process.env.REDIS_HOST && process.env.REDIS_PORT) {
       const redisConfig = {
-        // no security (rediss) for now
-        url: `redis://${process.env.REDIS_HOST}:${process.env.REDIS_PORT}`,
+        socket: {
+          tls: process.env.REDIS_TLS_ENABLED === "true",
+          host: process.env.REDIS_HOST,
+          port: process.env.REDIS_PORT as unknown as number,
+        },
         password: process.env.REDIS_KEY,
         // TODO add values from RedisSocketCommonOptions to handle connect timeout and reconnect settings
       };
       this._opsClient = createClient(redisConfig);
       this._metricsClient = createClient(redisConfig);
-
-      this._metricsClient.multi();
 
       // TODO find better way to do it
       this._opsClient.connect();
@@ -203,6 +204,7 @@ export class RedisManager {
         .connect()
         .then((connected) => connected.select(RedisManager.METRICS_DB))
         .then(() => this._promisifiedMetricsClient.set("health", "health"));
+      // TODO Add catch?
     } else {
       console.warn("No REDIS_HOST or REDIS_PORT environment variable configured.");
     }
