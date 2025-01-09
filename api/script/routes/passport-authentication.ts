@@ -6,6 +6,7 @@ import { Request, RequestHandler, Response, Router } from "express";
 import * as passport from "passport";
 import * as passportBearer from "passport-http-bearer";
 import * as passportGitHub from "passport-github2";
+import * as passportGoogle from "passport-google-oauth2";
 import * as passportWindowsLive from "passport-windowslive";
 import * as q from "q";
 import rateLimit from "express-rate-limit";
@@ -43,6 +44,7 @@ export class PassportAuthentication {
   private static AZURE_AD_PROVIDER_NAME = "azure-ad";
   private static GITHUB_PROVIDER_NAME = "github";
   private static MICROSOFT_PROVIDER_NAME = "microsoft";
+  private static GOOGLE_PROVIDER_NAME = "google";
 
   private _cookieSessionMiddleware: RequestHandler;
   private _serverUrl: string;
@@ -238,6 +240,14 @@ export class PassportAuthentication {
       this.setupAppGitHubRoutes(router, appGitHubClientId, appGitHubClientSecret);
     }
 
+    const appGoogleClientId: string = process.env["APP_GOOGLE_CLIENT_ID"];
+    const appGoogleClientSecret: string = process.env["APP_GOOGLE_CLIENT_SECRET"];
+    const isAppGoogleAuthenticationEnabled: boolean = !!this._appServerUrl && !!appGoogleClientId && !!appGoogleClientSecret;
+
+    if (isAppGoogleAuthenticationEnabled) {
+      this.setupAppGoogleRoutes(router, appGoogleClientId, appGoogleClientSecret);
+    }
+
     return router;
   }
 
@@ -284,6 +294,8 @@ export class PassportAuthentication {
         return account.gitHubId;
       case PassportAuthentication.MICROSOFT_PROVIDER_NAME:
         return account.microsoftId;
+      case PassportAuthentication.GOOGLE_PROVIDER_NAME:
+        return account.googleId;
       default:
         throw new Error("Unrecognized provider");
     }
@@ -300,42 +312,44 @@ export class PassportAuthentication {
       case PassportAuthentication.MICROSOFT_PROVIDER_NAME:
         account.microsoftId = id;
         return;
+      case PassportAuthentication.GOOGLE_PROVIDER_NAME:
+        account.googleId = id;
+        return;
       default:
         throw new Error("Unrecognized provider");
     }
   }
 
   private setupAppCommonRoutes(router: Router, providerName: string, strategyName: string): void {
-
     /**
-       * @openapi
-       * /app/auth/logout:
-       *   get:
-       *     summary: Logout the user
-       *     description: Logs out the user by invalidating the access key and clearing the session.
-       *     parameters:
-       *       - in: query
-       *         name: accessKeyId
-       *         required: false
-       *         schema:
-       *           type: string
-       *         description: The access key ID to be invalidated
-       *     responses:
-       *       200:
-       *         description: Successfully logged out
-       *         content:
-       *           application/json:
-       *             schema:
-       *               type: object
-       *               properties:
-       *                 result:
-       *                   type: string
-       *                   example: success
-       *       401:
-       *         description: Unauthorized access
-       *       500:
-       *         description: Internal server error
-       */
+     * @openapi
+     * /app/auth/logout:
+     *   get:
+     *     summary: Logout the user
+     *     description: Logs out the user by invalidating the access key and clearing the session.
+     *     parameters:
+     *       - in: query
+     *         name: accessKeyId
+     *         required: false
+     *         schema:
+     *           type: string
+     *         description: The access key ID to be invalidated
+     *     responses:
+     *       200:
+     *         description: Successfully logged out
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 result:
+     *                   type: string
+     *                   example: success
+     *       401:
+     *         description: Unauthorized access
+     *       500:
+     *         description: Internal server error
+     */
     router.get("/auth/logout", this._cookieSessionMiddleware, (req: Request, res: Response, next: (err?: any) => void): any => {
       passport.authenticate("bearer", { session: false }, (err: any, user: any) => {
         if (err || !user) {
@@ -361,10 +375,17 @@ export class PassportAuthentication {
 
     /**
      * @openapi
-     * /app/auth/login/github:
+     * /app/auth/login/{provider}:
      *   get:
-     *     summary: Initiate login with HitHub
+     *     summary: Initiate login with given provider
      *     description: Initiates the login process with GitHub provider.
+     *     parameters:
+     *       - in: path
+     *         name: provider
+     *         required: true
+     *         schema:
+     *           type: string
+     *         description: The name of the auth provider (github, google)
      *     responses:
      *       200:
      *         description: Login initiated successfully
@@ -609,6 +630,7 @@ export class PassportAuthentication {
                   return this._storageInstance.updateAccount(account.email, account).then(() => {
                     const message =
                       "You have successfully linked your account!<br/>You will now be able to use this provider to authenticate in the future.<br/>Please return to the CLI to continue.";
+                    req.session = null;
                     res.send({ message: message });
                   });
                 case "login":
@@ -874,6 +896,40 @@ export class PassportAuthentication {
         }
       )
     );
+
+    this.setupAppCommonRoutes(router, providerName, strategyName);
+  }
+
+  private setupAppGoogleRoutes(router: Router, clientID: string, clientSecret: string): void {
+    const providerName = PassportAuthentication.GOOGLE_PROVIDER_NAME;
+    const strategyName = "appgoogle";
+    const options: passportGoogle.StrategyOptionsWithRequest = {
+      clientID: clientID,
+      clientSecret: clientSecret,
+      callbackURL: `${this._appServerUrl}/auth/callback/${providerName}`,
+      scope: ["https://www.googleapis.com/auth/userinfo.profile","email"],
+      passReqToCallback: true,
+      // TODO figure out if we need refreshToken. see https://github.com/jaredhanson/passport-google-oauth2/issues/27#issuecomment-313969184
+    };
+
+    const verify: passportGoogle.VerifyFunctionWithRequestAndParams = (
+      req: Request,
+      accessToken: string,
+      refreshToken: string,
+      params: {
+        access_token: string;
+        expires_in: number;
+        scope: string;
+        token_type: "Bearer";
+        id_token: string;
+      },
+      profile: any,
+      done: passportGoogle.VerifyCallback
+    ): void => {
+      done(/*err*/ null, profile);
+    };
+
+    passport.use(strategyName, new passportGoogle.Strategy(options, verify));
 
     this.setupAppCommonRoutes(router, providerName, strategyName);
   }
