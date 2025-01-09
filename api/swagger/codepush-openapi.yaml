@@ -1566,10 +1566,17 @@ paths:
           description: Unauthorized access
         "500":
           description: Internal server error
-  /app/auth/login/github:
+  "/app/auth/login/{provider}":
     get:
-      summary: Initiate login with HitHub
+      summary: Initiate login with given provider
       description: Initiates the login process with GitHub provider.
+      parameters:
+        - in: path
+          name: provider
+          required: true
+          schema:
+            type: string
+          description: The name of the auth provider (github, google)
       responses:
         "200":
           description: Login initiated successfully

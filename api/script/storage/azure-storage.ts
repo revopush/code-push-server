@@ -272,6 +272,7 @@ export class AzureStorage implements storage.Storage {
       azureAdId: updateProperties.azureAdId,
       gitHubId: updateProperties.gitHubId,
       microsoftId: updateProperties.microsoftId,
+      googleId: updateProperties.googleId,
     };
 
     return this._setupPromise
