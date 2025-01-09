@@ -10,6 +10,9 @@ param github_client_secret string
 param app_github_client_id string
 @secure()
 param app_github_client_secret string
+param app_google_client_id string
+@secure()
+param app_google_client_secret string
 param microsoft_client_id string
 @secure()
 param microsoft_client_secret string
@@ -69,6 +72,8 @@ resource webApp 'Microsoft.Web/sites@2023-01-01' = {
         { name: 'GITHUB_CLIENT_SECRET', value: github_client_secret }
         { name: 'APP_GITHUB_CLIENT_ID', value: app_github_client_id }
         { name: 'APP_GITHUB_CLIENT_SECRET', value: app_github_client_secret }
+        { name: 'APP_GOOGLE_CLIENT_ID', value: app_google_client_id }
+        { name: 'APP_GOOGLE_CLIENT_SECRET', value: app_google_client_secret }
         { name: 'MICROSOFT_CLIENT_ID', value: microsoft_client_id }
         { name: 'MICROSOFT_CLIENT_SECRET', value: microsoft_client_secret }
         { name: 'WEBSITE_NODE_DEFAULT_VERSION', value: '18-lts' }
