@@ -43,6 +43,7 @@ export interface Account {
   gitHubId?: string;
   /*generated*/ id?: string;
   microsoftId?: string;
+  googleId?: string;
   /*const*/ name: string;
 }
 
