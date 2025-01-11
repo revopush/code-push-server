@@ -378,7 +378,7 @@ export class PassportAuthentication {
      * /app/auth/login/{provider}:
      *   get:
      *     summary: Initiate login with given provider
-     *     description: Initiates the login process with GitHub provider.
+     *     description: Initiates the login process with given provider.
      *     parameters:
      *       - in: path
      *         name: provider
@@ -432,10 +432,17 @@ export class PassportAuthentication {
 
     /**
      * @openapi
-     * /app/auth/register/github:
+     * /app/auth/register/{provider}:
      *   get:
-     *     summary: Initiate register with the GitHub
-     *     description: Initiates the register process with GitHub provider.
+     *     summary: Initiate register with the given provider.
+     *     description: Initiates the register process with given provider.
+     *     parameters:
+     *       - in: path
+     *         name: provider
+     *         required: true
+     *         schema:
+     *           type: string
+     *         description: The name of the auth provider (github, google)
      *     responses:
      *       200:
      *         description: Redgister initiated successfully
@@ -508,11 +515,17 @@ export class PassportAuthentication {
 
     /**
      * @openapi
-     * /app/auth/callback/github:
+     * /app/auth/callback/{provider}:
      *   get:
      *     summary: Handle OAuth callback
      *     description: Issue app token for the authenticated user.
      *     parameters:
+     *       - in: path
+     *         name: provider
+     *         required: true
+     *         schema:
+     *           type: string
+     *         description: The name of the auth provider (github, google)
      *       - in: query
      *         name: code
      *         required: true
