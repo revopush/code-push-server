@@ -154,7 +154,7 @@ export class PassportAuthentication {
     const isGitHubAuthenticationEnabled: boolean = !!this._serverUrl && !!gitHubClientId && !!gitHubClientSecret;
 
     if (isGitHubAuthenticationEnabled) {
-      this.setupGitHubRoutes(router, gitHubClientId, gitHubClientSecret);
+      // this.setupGitHubRoutes(router, gitHubClientId, gitHubClientSecret);
     }
 
     // See https://msdn.microsoft.com/en-us/library/hh243649.aspx for more information.
@@ -967,7 +967,7 @@ export class PassportAuthentication {
       )
     );
 
-    this.setupCommonRoutes(router, providerName, strategyName);
+    // this.setupCommonRoutes(router, providerName, strategyName);
   }
 
   private setupMicrosoftRoutes(router: Router, microsoftClientId: string, microsoftClientSecret: string): void {
