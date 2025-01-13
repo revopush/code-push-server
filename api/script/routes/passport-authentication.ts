@@ -343,28 +343,6 @@ export class PassportAuthentication {
     router.get("/auth/logout", this._cookieSessionMiddleware, (req: Request, res: Response, next: (err?: any) => void): any => {
       req.session = null;
       res.send({ result: "success" });
-      /*
-                                                passport.authenticate("bearer", { session: false }, (err: any, user: any) => {
-                                                  if (err || !user) {
-                                                    restErrorUtils.sendRestUnknownError(res, new Error(`something went wrong`), next);
-                                                  } else {
-                                                    const { id: accountId } = user;
-                                                    const accessKeyId = req.session.accessKeyId || req.query.accessKeyId;
-
-                                                    // TODO do not delete key . just clear the session
-                                                    this._storageInstance
-                                                      .removeAccessKey(accountId, accessKeyId)
-                                                      .then(() => {
-                                                        req.session = null;
-                                                        res.send({ result: "success" });
-                                                      })
-                                                      .catch((error) => {
-                                                        req.session = null;
-                                                        errorUtils.restErrorHandler(res, error, next);
-                                                      })
-                                                      .done();
-                                                  }
-                                                })(req, res, next);*/
     });
 
     /**
