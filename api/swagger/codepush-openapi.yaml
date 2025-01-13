@@ -1637,7 +1637,8 @@ paths:
   "/app/auth/callback/{provider}":
     get:
       summary: Handle OAuth callback
-      description: Issue app token for the authenticated user.
+      description: Login or register the user. Sets oauth.session cookie in response
+        for further interaction.
       parameters:
         - in: path
           name: provider
@@ -1665,9 +1666,9 @@ paths:
               schema:
                 type: object
                 properties:
-                  accessKey:
+                  accountId:
                     type: string
-                    description: The access key for the authenticated user
+                    description: AccountId of logged user
         "401":
           description: Unauthorized access
         "403":
