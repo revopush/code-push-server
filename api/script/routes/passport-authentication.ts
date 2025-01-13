@@ -5,6 +5,7 @@ import * as cookieSession from "cookie-session";
 import { Request, RequestHandler, Response, Router } from "express";
 import * as passport from "passport";
 import * as passportBearer from "passport-http-bearer";
+import * as customStrategy from "passport-custom";
 import * as passportGitHub from "passport-github2";
 import * as passportGoogle from "passport-google-oauth2";
 import * as passportWindowsLive from "passport-windowslive";
@@ -20,8 +21,7 @@ import { ServerResponse } from "http";
 
 const passportActiveDirectory = require("passport-azure-ad");
 import Promise = q.Promise;
-import * as storageTypes from "../storage/storage";
-import * as errorUtils from "../utils/rest-error-handling";
+import { Account } from "../storage/storage";
 
 export interface AuthenticationConfig {
   storage: storage.Storage;
@@ -46,9 +46,9 @@ export class PassportAuthentication {
   private static MICROSOFT_PROVIDER_NAME = "microsoft";
   private static GOOGLE_PROVIDER_NAME = "google";
 
-  private _cookieSessionMiddleware: RequestHandler;
-  private _serverUrl: string;
-  private _appServerUrl: string;
+  private readonly _cookieSessionMiddleware: RequestHandler;
+  private readonly _serverUrl: string;
+  private readonly _appServerUrl: string;
   private _storageInstance: storage.Storage;
 
   constructor(config: AuthenticationConfig) {
@@ -67,25 +67,15 @@ export class PassportAuthentication {
     });
     this._storageInstance = config.storage;
 
-    passport.use(
-      new passportBearer.Strategy((accessKey: string, done: (error: any, user?: any) => void) => {
-        if (!validationUtils.isValidKeyField(accessKey)) {
-          done(/*err*/ null, /*user*/ false);
-          return;
-        }
-        this._storageInstance
-          .getAccountIdFromAccessKey(accessKey)
-          .then((accountId: string) => {
-            done(/*err*/ null, { id: accountId });
-          })
-          .catch((error: storage.StorageError): void => PassportAuthentication.storageErrorHandler(error, done))
-          .done();
-      })
-    );
+    passport.use("bearer", this.passportBearerStrategy());
+    passport.use("cookieSession", this.cookieSessionStrategy());
   }
 
   public authenticate(req: Request, res: Response, next: (err?: Error) => void): void {
-    passport.authenticate("bearer", { session: false }, (err: any, user: any) => {
+    // TODO allow to pass ["bearer", "cookie"] as parameters eg
+    //  this.authenticate(["bearer", "cookie"]) to use both strategies
+    //  or this.authenticate(["bearer"]) for legacy
+    passport.authenticate(["bearer", "cookieSession"], { session: false }, (err: any, user: any) => {
       if (err || !user) {
         if (!err || err.code === storage.ErrorCode.NotFound) {
           res
@@ -351,26 +341,8 @@ export class PassportAuthentication {
      *         description: Internal server error
      */
     router.get("/auth/logout", this._cookieSessionMiddleware, (req: Request, res: Response, next: (err?: any) => void): any => {
-      passport.authenticate("bearer", { session: false }, (err: any, user: any) => {
-        if (err || !user) {
-          restErrorUtils.sendRestUnknownError(res, new Error(`something went wrong`), next);
-        } else {
-          const { id: accountId } = user;
-          const accessKeyId = req.session.accessKeyId || req.query.accessKeyId;
-
-          this._storageInstance
-            .removeAccessKey(accountId, accessKeyId)
-            .then(() => {
-              req.session = null;
-              res.send({ result: "success" });
-            })
-            .catch((error) => {
-              req.session = null;
-              errorUtils.restErrorHandler(res, error, next);
-            })
-            .done();
-        }
-      })(req, res, next);
+      req.session = null;
+      res.send({ result: "success" });
     });
 
     /**
@@ -476,9 +448,9 @@ export class PassportAuthentication {
       (req: Request, res: Response, next: (err?: any) => void): any => {
         //TODO
         /*        if (!PassportAuthentication.isAccountRegistrationEnabled()) {
-                                                                                                                                                                                                                                                                                                                                                  restErrorUtils.sendForbiddenError(res);
-                                                                                                                                                                                                                                                                                                                                                  return;
-                                                                                                                                                                                                                                                                                                                                                }*/
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          restErrorUtils.sendForbiddenError(res);
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          return;
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        }*/
 
         req.session["action"] = "register";
 
@@ -518,7 +490,7 @@ export class PassportAuthentication {
      * /app/auth/callback/{provider}:
      *   get:
      *     summary: Handle OAuth callback
-     *     description: Issue app token for the authenticated user.
+     *     description: Login or register the user. Sets oauth.session cookie in response for further interaction.
      *     parameters:
      *       - in: path
      *         name: provider
@@ -546,9 +518,9 @@ export class PassportAuthentication {
      *             schema:
      *               type: object
      *               properties:
-     *                 accessKey:
+     *                 accountId:
      *                   type: string
-     *                   description: The access key for the authenticated user
+     *                   description: AccountId of logged user
      *       401:
      *         description: Unauthorized access
      *       403:
@@ -573,14 +545,7 @@ export class PassportAuthentication {
       },
       (req: Request, res: Response, next: (err?: any) => void): any => {
         const action: string = req.session["action"];
-        const hostname: string = req.session["hostname"];
         const user: passport.Profile = req.user;
-
-        //TODO think about disabled registration on the app.
-        /*        if (action === "register" && !PassportAuthentication.isAccountRegistrationEnabled()) {
-                                                                                                                                                                                                                                                                                  restErrorUtils.sendForbiddenError(res);
-                                                                                                                                                                                                                                                                                  return;
-                                                                                                                                                                                                                                                                                }*/
 
         const emailAddress: string = PassportAuthentication.getEmailAddress(user);
         if (!emailAddress && providerName === PassportAuthentication.MICROSOFT_PROVIDER_NAME) {
@@ -598,23 +563,11 @@ export class PassportAuthentication {
           return;
         }
 
-        // TODO: do not
-        const issueAccessKey = (accountId: string): Promise<void> => {
-          const now: number = new Date().getTime();
-          const friendlyName: string = `Login-${now}`;
-          const accessKey: storage.AccessKey = {
-            name: security.generateSecureKey(accountId),
-            createdTime: now,
-            createdBy: hostname || restHeaders.getIpAddress(req),
-            description: friendlyName,
-            expires: now + DEFAULT_SESSION_EXPIRY,
-            friendlyName: friendlyName,
-            isSession: true,
-          };
-
-          return this._storageInstance.addAccessKey(accountId, accessKey).then((accessKeyId: string): void => {
-            req.session.accessKeyId = accessKeyId;
-            res.send({ accessKey: accessKey.name, accessKeyId: accessKeyId });
+        const onRegisterLoginSuccess = (accountId: string): Promise<void> => {
+          return q.resolve().then(() => {
+            req.session.action = null;
+            req.session.accountId = accountId;
+            res.send({ accountId: accountId });
           });
         };
 
@@ -632,6 +585,7 @@ export class PassportAuthentication {
                       "<br/>Please cancel the registration process (Ctrl-C) on the CLI and login with your registered account." +
                       "<br/>Once logged in, you can optionally link this provider to your account.";
                   restErrorUtils.sendRestAlreadyExistsError(res, message);
+                  // todo add session clean up
                   return;
                 case "link":
                   if (existingProviderId) {
@@ -649,12 +603,14 @@ export class PassportAuthentication {
                 case "login":
                   if (!isProviderValid) {
                     restErrorUtils.sendRestForbiddenError(res, "You are not registered with the service using this provider account.");
+                    // todo add session clean up
                     return;
                   }
 
-                  return issueAccessKey(account.id);
+                  return onRegisterLoginSuccess(account.id);
                 default:
                   restErrorUtils.sendRestUnknownError(res, new Error(`Unrecognized action (${action})`), next);
+                  // todo add session clean up
                   return;
               }
             },
@@ -685,7 +641,7 @@ export class PassportAuthentication {
 
                   return this._storageInstance
                     .addAccount(newUser)
-                    .then((accountId: string): Promise<void> => issueAccessKey(accountId));
+                    .then((accountId: string): Promise<void> => onRegisterLoginSuccess(accountId));
                 default:
                   restErrorUtils.sendRestUnknownError(res, new Error(`Unrecognized action (${action})`), next);
                   return;
@@ -920,7 +876,7 @@ export class PassportAuthentication {
       clientID: clientID,
       clientSecret: clientSecret,
       callbackURL: `${this._appServerUrl}/auth/callback/${providerName}`,
-      scope: ["https://www.googleapis.com/auth/userinfo.profile","email"],
+      scope: ["https://www.googleapis.com/auth/userinfo.profile", "email"],
       passReqToCallback: true,
       // TODO figure out if we need refreshToken. see https://github.com/jaredhanson/passport-google-oauth2/issues/27#issuecomment-313969184
     };
@@ -1028,5 +984,42 @@ export class PassportAuthentication {
     );
 
     this.setupCommonRoutes(router, providerName, strategyName);
+  }
+
+  // passport strategy for cookie auth. This is used by Frontend app to authenticate with the server.
+  // takes accountId from session cookies and tries to get account by its value.
+  // MUST be used together with cookie-session middleware!
+  private cookieSessionStrategy() {
+    return new customStrategy.Strategy((req: Request, done: (error: any, user?: any) => void) => {
+      // just to get access to req.session without the need to apply this middleware to all routes
+      // literally we parse cookie values potentially with encryption keys.
+      this._cookieSessionMiddleware(req, new ServerResponse(req) as Response, () => {});
+      // req.session is now available
+      this._storageInstance
+        .getAccount(req.session.accountId)
+        .then((account: Account) => {
+          done(/*err*/ null, { id: account.id });
+        })
+        .catch((error: storage.StorageError): void => PassportAuthentication.storageErrorHandler(error, done))
+        .done();
+    });
+  }
+
+  // passport strategy for Bearer auth. This is used by the CLI to authenticate with the server.
+  // takes access key from Authorization header and tries to get account by access key.
+  private passportBearerStrategy() {
+    return new passportBearer.Strategy((accessKey: string, done: (error: any, user?: any) => void) => {
+      if (!validationUtils.isValidKeyField(accessKey)) {
+        done(/*err*/ null, /*user*/ false);
+        return;
+      }
+      this._storageInstance
+        .getAccountIdFromAccessKey(accessKey)
+        .then((accountId: string) => {
+          done(/*err*/ null, { id: accountId });
+        })
+        .catch((error: storage.StorageError): void => PassportAuthentication.storageErrorHandler(error, done))
+        .done();
+    });
   }
 }
